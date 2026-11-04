@@ -1,0 +1,27 @@
+[project]
+name = "weighter"
+version = "0.1.0"
+description = "Weight-space programming AI harness for PyTorch modules"
+readme = "README.md"
+authors = [
+    { email = "djtech.developer@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "litellm>=1.40",
+    "prompt_toolkit>=3.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[build-system]
+requires = ["uv_build>=0.8.19,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
