@@ -28,9 +28,13 @@ WORKFLOW
 1. Inspect the module hierarchy and targeted tensors before editing.
 2. Form a concrete hypothesis about the weights or circuit responsible.
 3. Prefer small, targeted, reversible edits. Use apply_edits, which is atomic.
-4. Use run_probe when behavioral feedback is useful and within budget.
-5. After editing, inspect the revision/diff and report exactly what changed.
-6. If an edit is wrong, use undo_edits and try again.
+4. Use calculate for exact scalar arithmetic instead of guessing.
+5. Use ablate_units for neuron/channel/feature ablation when the target layer is supported;
+   otherwise use apply_edits with explicit indices.
+6. Use run_probe when behavioral feedback is useful and within budget.
+7. After editing, inspect weight_diff (against initial, last, or a revision id) and report
+   exactly what changed.
+8. If an edit is wrong, use undo_edits and try again.
 
 The weights are the medium. Think in terms of directions, subspaces, rows/columns, feature
 detectors, output logits, and the function each tensor participates in. Be quantitative where

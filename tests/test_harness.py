@@ -284,3 +284,52 @@ def test_streaming_tool_call_assembly(module: torch.nn.Linear) -> None:
     assert result.tool_calls[0].name == "read_tensor"
     assert result.tool_calls[0].ok is True
     assert result.tool_calls[0].arguments == {"name": "weight"}
+
+
+def test_new_tools_are_registered(module: torch.nn.Linear) -> None:
+    harness = Harness(module, llm="fake/model", completion_fn=ScriptedCompletion([]))
+    assert {"calculate", "weight_diff", "ablate_units"} <= set(harness._tools)
+
+    read_only = Harness(
+        module,
+        llm="fake/model",
+        edit_policy="read_only",
+        completion_fn=ScriptedCompletion([]),
+    )
+    assert {"calculate", "weight_diff"} <= set(read_only._tools)
+    assert "ablate_units" not in read_only._tools
+
+
+def test_calculate_tool_call(module: torch.nn.Linear) -> None:
+    fake = ScriptedCompletion(
+        [
+            response(
+                tool_calls=[
+                    tool_call("c1", "calculate", {"expression": "167 * 28 + 1.9"})
+                ]
+            ),
+            response("Calculated."),
+        ]
+    )
+    harness = Harness(module, llm="fake/model", completion_fn=fake)
+    result = harness.prompt("calculate")
+    assert result.tool_calls[0].ok is True
+    assert result.tool_calls[0].result["data"]["result"] == 4677.9
+
+
+def test_ablate_tool_call(module: torch.nn.Linear) -> None:
+    fake = ScriptedCompletion(
+        [
+            response(
+                tool_calls=[
+                    tool_call("c1", "ablate_units", {"module_path": "", "units": [0]})
+                ]
+            ),
+            response("Ablated."),
+        ]
+    )
+    harness = Harness(module, llm="fake/model", completion_fn=fake)
+    result = harness.prompt("ablate unit 0")
+    assert result.tool_calls[0].ok is True
+    assert torch.all(module.weight[0] == 0)
+    assert result.tool_calls[0].result["data"]["diff"]["total_changed_elements"] > 0

@@ -6,12 +6,30 @@ from typing import Any
 
 from pydantic import Field
 
+from ..errors import ToolError
+from ..weights import summarize_diff
 from .base import Tool, ToolArgs, ToolContext
 
 
 class RevisionHistoryArgs(ToolArgs):
-    include_diff: bool = Field(default=False, description="Include current-vs-initial diff")
+    include_diff: bool = Field(default=False, description="Include a current-vs-baseline diff")
+    diff_since: str | None = Field(
+        default=None,
+        description="Diff baseline: 'initial', 'last', or a revision id",
+    )
     limit: int = Field(default=50, ge=1, le=500)
+
+
+class WeightDiffArgs(ToolArgs):
+    since: str = Field(
+        default="initial",
+        description="Baseline: 'initial', 'last', or a revision id such as 'r3'",
+    )
+    tensor_prefix: str | None = Field(
+        default=None, description="Only include tensors whose names start with this"
+    )
+    limit: int = Field(default=50, ge=1, le=500)
+    summary_only: bool = False
 
 
 class UndoEditsArgs(ToolArgs):
@@ -30,9 +48,33 @@ def revision_history(ctx: ToolContext, args: RevisionHistoryArgs) -> dict[str, A
     }
     if args.include_diff:
         try:
-            result["diff"] = ctx.store.diff()
+            diffs = ctx.store.diff(since=args.diff_since)
+            result["diff"] = diffs
+            result["diff_summary"] = summarize_diff(
+                diffs, module_elements=ctx.store.total_elements()
+            )
         except Exception as exc:
             result["diff_error"] = str(exc)
+    return result
+
+
+def weight_diff(ctx: ToolContext, args: WeightDiffArgs) -> dict[str, Any]:
+    try:
+        diffs = ctx.store.diff(since=args.since, tensor_prefix=args.tensor_prefix)
+    except ToolError:
+        raise
+    except Exception as exc:
+        raise ToolError(f"could not compute diff: {exc}") from exc
+    summary = summarize_diff(diffs, module_elements=ctx.store.total_elements())
+    result: dict[str, Any] = {
+        "since": args.since,
+        "count": len(diffs),
+        "summary": summary,
+    }
+    if not args.summary_only:
+        result["tensors"] = diffs[: args.limit]
+        result["returned"] = len(result["tensors"])
+        result["truncated"] = len(diffs) > args.limit
     return result
 
 
@@ -54,6 +96,16 @@ TOOLS: list[Tool] = [
         description="List recent weight revisions, dirty tensors, and optionally the current diff.",
         args_model=RevisionHistoryArgs,
         handler=revision_history,
+    ),
+    Tool(
+        name="weight_diff",
+        description=(
+            "Compare current weights against a baseline. Use since='initial' for all edits, "
+            "since='last' for the most recent revision, or a revision id such as 'r3'. "
+            "Returns global change summary and per-tensor delta statistics."
+        ),
+        args_model=WeightDiffArgs,
+        handler=weight_diff,
     ),
     Tool(
         name="undo_edits",

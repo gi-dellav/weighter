@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Sequence
@@ -697,15 +698,42 @@ class WeightStore:
     def revision_infos(self) -> list[dict[str, Any]]:
         return [revision.info() for revision in self._revisions]
 
-    def diff(self) -> list[dict[str, Any]]:
+    def total_elements(self) -> int:
+        return sum(int(ref.tensor.numel()) for ref in self._refs.values())
+
+    def _revisions_for_diff(self, since: str | None) -> list[Revision]:
         if not self.undo_enabled:
             raise ToolError("diff is unavailable when undo is disabled")
         if not self._revisions:
             return []
+        if since is None or since == "" or since in {"initial", "all"}:
+            return list(self._revisions)
+        if since == "last":
+            return [self._revisions[-1]]
+        ids = [revision.id for revision in self._revisions]
+        if since not in ids:
+            available = ", ".join(ids[-20:]) or "(none)"
+            raise ToolError(
+                f"unknown revision {since!r}; use 'initial', 'last', or one of: {available}"
+            )
+        index = ids.index(since)
+        return self._revisions[index + 1 :]
+
+    def diff(
+        self,
+        since: str | None = None,
+        *,
+        tensor_prefix: str | None = None,
+    ) -> list[dict[str, Any]]:
+        reverse_revisions = self._revisions_for_diff(since)
+        if not reverse_revisions:
+            return []
         names: list[str] = []
         seen: set[str] = set()
-        for revision in self._revisions:
+        for revision in reverse_revisions:
             for name in revision.tensors:
+                if tensor_prefix and not name.startswith(tensor_prefix):
+                    continue
                 if name not in seen:
                     seen.add(name)
                     names.append(name)
@@ -713,7 +741,7 @@ class WeightStore:
         for name in names:
             current = self.tensor(name).detach().cpu()
             original = current.clone()
-            for revision in reversed(self._revisions):
+            for revision in reversed(reverse_revisions):
                 for patch in reversed(revision.patches):
                     if patch.name == name:
                         original[patch.index] = patch.original
@@ -739,3 +767,66 @@ class WeightStore:
                 }
             )
         return results
+
+
+def _as_float(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
+def summarize_diff(
+    diffs: list[dict[str, Any]],
+    *,
+    module_elements: int | None = None,
+    top_n: int = 10,
+) -> dict[str, Any]:
+    """Summarize a list of per-tensor diffs, including global deltas."""
+
+    total_changed = sum(int(item.get("changed_elements", 0)) for item in diffs)
+    dirty_elements = sum(int(item.get("total_elements", 0)) for item in diffs)
+    delta_squares = sum(_as_float(item.get("delta_norm", 0.0)) ** 2 for item in diffs)
+    original_squares = sum(_as_float(item.get("original_norm", 0.0)) ** 2 for item in diffs)
+    global_delta = math.sqrt(delta_squares)
+    global_original = math.sqrt(original_squares)
+    max_abs = max((_as_float(item.get("max_abs_delta", 0.0)) for item in diffs), default=0.0)
+    top = sorted(
+        diffs,
+        key=lambda item: (
+            int(item.get("changed_elements", 0)),
+            _as_float(item.get("delta_norm", 0.0)),
+        ),
+        reverse=True,
+    )[:top_n]
+    summary: dict[str, Any] = {
+        "changed_tensors": len(diffs),
+        "total_changed_elements": total_changed,
+        "dirty_tensor_elements": dirty_elements,
+        "global_delta_norm": safe_float(global_delta),
+        "global_original_norm": safe_float(global_original),
+        "global_relative_delta": safe_float(
+            global_delta / global_original if global_original else 0.0
+        ),
+        "max_abs_delta": safe_float(max_abs),
+        "top_changed": [
+            {
+                "name": item.get("name"),
+                "changed_elements": item.get("changed_elements"),
+                "total_elements": item.get("total_elements"),
+                "delta_norm": item.get("delta_norm"),
+                "relative_delta": item.get("relative_delta"),
+            }
+            for item in top
+        ],
+    }
+    if module_elements is not None:
+        summary["module_elements"] = module_elements
+        summary["changed_fraction_of_module"] = safe_float(
+            total_changed / module_elements if module_elements else 0.0
+        )
+        summary["dirty_fraction_of_module"] = safe_float(
+            dirty_elements / module_elements if module_elements else 0.0
+        )
+    return summary

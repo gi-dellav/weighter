@@ -25,7 +25,7 @@ from .types import (
     Usage,
 )
 from .utils import content_to_text, get_attr, json_dumps, truncate_text
-from .weights import WeightStore
+from .weights import WeightStore, summarize_diff
 
 CompletionFn = Callable[..., Any]
 EventSink = Callable[[HarnessEvent], None]
@@ -266,8 +266,24 @@ class Harness:
     def revisions(self) -> list[dict[str, Any]]:
         return self._store.revision_infos()
 
-    def diff(self) -> list[dict[str, Any]]:
-        return self._store.diff()
+    def diff(
+        self,
+        since: str | None = None,
+        *,
+        tensor_prefix: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._store.diff(since=since, tensor_prefix=tensor_prefix)
+
+    def diff_summary(
+        self,
+        since: str | None = None,
+        *,
+        tensor_prefix: str | None = None,
+    ) -> dict[str, Any]:
+        return summarize_diff(
+            self._store.diff(since=since, tensor_prefix=tensor_prefix),
+            module_elements=self._store.total_elements(),
+        )
 
     def undo(self, n: int = 1) -> list[dict[str, Any]]:
         return [revision.info() for revision in self._store.undo(n)]

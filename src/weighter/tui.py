@@ -28,7 +28,7 @@ Commands:
   /status               harness, model, revision, probe and token status
   /tensors [prefix]     list visible tensors
   /revisions            list weight revisions
-  /diff                 compare current weights with their original values
+  /diff [baseline]      compare weights to initial, last, or a revision id
   /undo [n]             roll back the last n revisions (default 1)
   /reset                clear conversation history
   /clear                clear the transcript
@@ -296,13 +296,27 @@ class HarnessTUI:
                 detail = f" {len(data['tensors'])} tensors"
             elif "values" in data:
                 detail = f" {data.get('returned', '?')} values"
-            elif "result" in data:
+            elif name == "calculate" and "result" in data:
+                detail = f" = {data.get('repr', data.get('result'))}"
+            elif name == "run_probe":
                 detail = " probe result"
+            elif "summary" in data and isinstance(data["summary"], dict):
+                summary = data["summary"]
+                detail = (
+                    f" changed={summary.get('total_changed_elements')}"
+                    f" tensors={summary.get('changed_tensors')}"
+                )
             else:
                 compact = json_dumps(data)
                 if len(compact) > 260:
                     compact = compact[:257] + "..."
                 detail = f" {compact}"
+            diff = data.get("diff")
+            if isinstance(diff, dict):
+                detail += (
+                    f" changed={diff.get('total_changed_elements')}"
+                    f"/{diff.get('dirty_tensor_elements')}"
+                )
         return f"tool< {name} ok in {duration:.2f}s{detail}"
 
     def _handle_command(self, text: str) -> None:
@@ -335,11 +349,24 @@ class HarnessTUI:
                     json.dumps(revisions, indent=2) if revisions else "(no revisions)",
                 )
             elif command == "/diff":
-                diff = self.harness.diff()
-                self._add(
-                    "class:system",
-                    json.dumps(diff, indent=2) if diff else "(no edits)",
-                )
+                since = parts[1] if len(parts) > 1 else None
+                diff = self.harness.diff(since=since)
+                if not diff:
+                    self._add("class:system", "(no edits)")
+                else:
+                    summary = self.harness.diff_summary(since=since)
+                    self._add(
+                        "class:system",
+                        json.dumps(
+                            {
+                                "since": since or "initial",
+                                "summary": summary,
+                                "tensors": diff[:50],
+                                "truncated": len(diff) > 50,
+                            },
+                            indent=2,
+                        ),
+                    )
             elif command == "/undo":
                 if self._busy:
                     self._add("class:dim", "Wait for the current run to finish.")

@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
+from ..weights import summarize_diff
 from .base import Tool, ToolArgs, ToolContext
 
 
@@ -48,11 +49,19 @@ def apply_edits(ctx: ToolContext, args: ApplyEditsArgs) -> dict[str, Any]:
         max_edit_elements=ctx.config.max_edit_elements,
         confirm=ctx.confirm,
     )
-    return {
+    result: dict[str, Any] = {
         "revision": revision.info(),
         "changed_tensors": revision.tensors,
-        "hint": "Use revision_history, diff, or undo_edits to inspect or revert.",
+        "hint": "Use weight_diff, revision_history, or undo_edits to inspect or revert.",
     }
+    try:
+        result["diff"] = summarize_diff(
+            ctx.store.diff(since="last"),
+            module_elements=ctx.store.total_elements(),
+        )
+    except Exception:
+        result["diff"] = None
+    return result
 
 
 TOOLS: list[Tool] = [
