@@ -1,12 +1,26 @@
 [project]
 name = "weighter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Weight-space programming AI harness for PyTorch modules"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
-    { email = "djtech.developer@gmail.com" }
+    { name = "Giuseppe Della Vedova", email = "djtech.developer@gmail.com" }
 ]
 requires-python = ">=3.10"
+keywords = ["pytorch", "ai", "llm", "agent", "weights", "interpretability"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "torch>=2.0",
     "litellm>=1.40",
@@ -15,7 +29,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/gi-dellav/weighter"
+Repository = "https://github.com/gi-dellav/weighter"
+Issues = "https://github.com/gi-dellav/weighter/issues"
 
 [build-system]
 requires = ["uv_build>=0.8.19,<0.9.0"]

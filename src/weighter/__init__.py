@@ -14,19 +14,19 @@ from .harness import Harness
 from .tools import default_probe
 from .types import EditPolicy, PromptResult, ToolCallRecord, Usage
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
+    "ConfigurationError",
+    "EditError",
+    "EditPolicy",
     "Harness",
     "HarnessConfig",
+    "LLMError",
     "PromptResult",
     "ToolCallRecord",
-    "Usage",
-    "EditPolicy",
-    "default_probe",
-    "WeighterError",
-    "ConfigurationError",
     "ToolError",
-    "EditError",
-    "LLMError",
+    "Usage",
+    "WeighterError",
+    "default_probe",
 ]
