@@ -6,14 +6,14 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, Mapping, cast
+from typing import Any, Callable, Collection, Mapping, Sequence, cast
 
 import torch
 
 from .config import HarnessConfig
 from .errors import ConfigurationError, LLMError, ToolError
 from .prompts import build_system_prompt
-from .tools import ToolContext, build_tools, default_probe
+from .tools import Tool, ToolContext, build_tools, default_probe
 from .tools.base import ProbeBudget
 from .types import (
     ConfirmCallback,
@@ -50,6 +50,18 @@ class Harness:
     edit_policy:
         ``"auto"`` applies edits immediately, ``"confirm"`` requires a
         confirmation callback, and ``"read_only"`` hides editing tools.
+    tools:
+        Extra :class:`weighter.Tool` instances to expose to the model in
+        addition to the built-in toolset.
+    include_tools:
+        Optional allowlist of built-in tool names.  ``None`` keeps all
+        built-ins.  Custom tools are always registered.
+    exclude_tools:
+        Built-in tool names to remove.
+    allow_tool_override:
+        Allow custom tools to replace built-ins with the same name.
+    tool_extras:
+        Shared dictionary passed to custom tools as ``ctx.extras``.
     """
 
     def __init__(
@@ -65,6 +77,11 @@ class Harness:
         system_prompt: str | None = None,
         probe: ProbeFn | bool | None = None,
         probe_budget: int | None = None,
+        tools: Sequence[Tool] | None = None,
+        include_tools: Collection[str] | None = None,
+        exclude_tools: Collection[str] = (),
+        allow_tool_override: bool = False,
+        tool_extras: Mapping[str, Any] | None = None,
         edit_policy: EditPolicy = "auto",
         confirm_callback: ConfirmCallback | None = None,
         include_buffers: bool = False,
@@ -132,12 +149,20 @@ class Harness:
         self._probe_budget = ProbeBudget(remaining=self.config.probe_budget)
         self._messages: list[dict[str, Any]] = []
         self._usage = Usage()
+        try:
+            self._tool_extras = dict(tool_extras or {})
+        except (TypeError, ValueError) as exc:
+            raise ConfigurationError("tool_extras must be a mapping") from exc
 
         allow_writes = self.config.edit_policy != "read_only"
         self._tools = build_tools(
             allow_writes=allow_writes,
             undo_available=self.config.undo and allow_writes,
             probe_available=self.config.probe is not None,
+            extra_tools=tools or (),
+            include=include_tools,
+            exclude=exclude_tools,
+            allow_override=allow_tool_override,
         )
         self._tool_schemas = [tool.schema() for tool in self._tools.values()]
 
@@ -164,6 +189,10 @@ class Harness:
     def usage(self) -> Usage:
         return self._usage
 
+    @property
+    def tools(self) -> dict[str, Tool]:
+        return dict(self._tools)
+
     def status(self) -> dict[str, Any]:
         overview = self._store.overview()
         return {
@@ -175,6 +204,7 @@ class Harness:
             "dirty_tensors": self._store.dirty_tensors(),
             "probe_budget": self._probe_budget.remaining,
             "probe_enabled": self.config.probe is not None,
+            "tools": list(self._tools),
             "messages": len(self._messages),
             "usage": {
                 "prompt_tokens": self._usage.prompt_tokens,
@@ -336,6 +366,7 @@ class Harness:
             probe=self.config.probe,
             probe_budget=self._probe_budget,
             confirm=confirm,
+            extras=self._tool_extras,
         )
 
     def _run_tool_call(

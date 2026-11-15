@@ -11,7 +11,7 @@ from .errors import (
     WeighterError,
 )
 from .harness import Harness
-from .tools import default_probe
+from .tools import Tool, ToolArgs, ToolContext, default_probe, tool
 from .types import EditPolicy, PromptResult, ToolCallRecord, Usage
 
 __version__ = "1.0.0"
@@ -24,9 +24,13 @@ __all__ = [
     "HarnessConfig",
     "LLMError",
     "PromptResult",
+    "Tool",
+    "ToolArgs",
     "ToolCallRecord",
+    "ToolContext",
     "ToolError",
     "Usage",
     "WeighterError",
     "default_probe",
+    "tool",
 ]
