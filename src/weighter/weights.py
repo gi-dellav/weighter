@@ -88,6 +88,8 @@ def _parse_slice_string(text: str) -> slice | int:
                 raise EditError(f"invalid slice string: {text!r}") from exc
     while len(values) < 3:
         values.append(None)
+    if values[2] == 0:
+        raise EditError(f"invalid slice string {text!r}: step cannot be zero")
     return slice(values[0], values[1], values[2])
 
 
@@ -115,10 +117,9 @@ def parse_index(index: Sequence[Any] | None, ndim: int) -> tuple[Any, ...]:
         elif isinstance(item, (list, tuple)):
             if not item:
                 raise EditError("empty index lists are not supported")
-            try:
-                parsed.append([int(v) for v in item])
-            except (TypeError, ValueError) as exc:
-                raise EditError("index lists must contain integers") from exc
+            if not all(isinstance(v, int) and not isinstance(v, bool) for v in item):
+                raise EditError("index lists must contain integers")
+            parsed.append(list(item))
         else:
             raise EditError(f"unsupported index component: {item!r}")
     parsed.extend(slice(None) for _ in range(ndim - len(parsed)))
@@ -147,7 +148,7 @@ def _index_repr(index: tuple[Any, ...]) -> list[Any]:
 def _selection(tensor: torch.Tensor, index: tuple[Any, ...]) -> torch.Tensor:
     try:
         return tensor[index]
-    except (IndexError, RuntimeError, TypeError) as exc:
+    except (IndexError, RuntimeError, TypeError, ValueError) as exc:
         raise EditError(f"invalid index for tensor of shape {list(tensor.shape)}: {exc}") from exc
 
 
@@ -370,7 +371,10 @@ class WeightStore:
         total = int(flat.numel())
         shown = min(total, max_elements)
         raw_values = flat[:shown].cpu().tolist()
-        values = [safe_float(v) if isinstance(v, float) else v for v in raw_values]
+        values = [
+            safe_float(v) if isinstance(v, (float, complex)) else v
+            for v in raw_values
+        ]
         return {
             "name": ref.name,
             "aliases": list(ref.aliases),

@@ -24,7 +24,7 @@ def safe_float(value: Any, digits: int = 6) -> float | str:
 
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RuntimeError):
         return str(value)
     if math.isnan(number):
         return "nan"
@@ -74,7 +74,9 @@ def tensor_summary(tensor: torch.Tensor, *, max_elements: int = 64) -> dict[str,
     total = int(flat.numel())
     shown = min(total, max(max_elements, 0))
     raw_values = flat[:shown].cpu().tolist()
-    values = [safe_float(v) if isinstance(v, float) else v for v in raw_values]
+    values = [
+        safe_float(v) if isinstance(v, (float, complex)) else v for v in raw_values
+    ]
     result: dict[str, Any] = {
         "type": "tensor",
         "shape": list(tensor.shape),
@@ -85,7 +87,10 @@ def tensor_summary(tensor: torch.Tensor, *, max_elements: int = 64) -> dict[str,
         "truncated": shown < total,
     }
     if total:
-        sample = flat[: min(total, 100_000)].to(torch.float32).cpu()
+        sample = flat[: min(total, 100_000)]
+        if sample.is_complex():
+            sample = sample.abs()
+        sample = sample.to(torch.float32).cpu()
         result["stats"] = {
             "mean": safe_float(sample.mean()),
             "std": safe_float(sample.std(unbiased=False)),

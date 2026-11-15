@@ -305,13 +305,17 @@ def default_probe(module: torch.nn.Module, payload: dict[str, Any]) -> dict[str,
 
     dtype, device = _default_dtype_and_device(module)
     if "args" in payload:
-        raw_args = payload.get("args") or []
+        raw_args = payload.get("args")
+        if raw_args is None:
+            raw_args = []
     elif "input" in payload:
         raw_args = [payload["input"]]
     else:
         raw_args = []
     if "kwargs" in payload:
-        raw_kwargs = payload.get("kwargs") or {}
+        raw_kwargs = payload.get("kwargs")
+        if raw_kwargs is None:
+            raw_kwargs = {}
     elif "args" not in payload and "input" not in payload:
         raw_kwargs = {k: v for k, v in payload.items() if k not in _OPTION_KEYS}
     else:

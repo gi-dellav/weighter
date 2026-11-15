@@ -48,6 +48,8 @@ class LinearAlgebraArgs(ToolArgs):
 
 def _selection(ctx: ToolContext, name: str, index: list[Any] | None) -> torch.Tensor:
     selection = ctx.store.selection(name, index).detach()
+    if selection.is_complex():
+        raise ToolError("linear_algebra does not support complex tensors")
     if selection.numel() > ctx.config.max_edit_elements:
         raise ToolError(
             f"selection has {selection.numel()} elements; narrow the index to at most "

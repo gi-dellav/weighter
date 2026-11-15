@@ -113,3 +113,122 @@ def test_unsupported_module_has_actionable_error() -> None:
     _, context = _context(module)
     with pytest.raises(ToolError, match="use apply_edits"):
         ablate_units(context, AblateUnitsArgs(module_path="0", units=[0]))
+
+
+def test_multi_dimensional_layer_norm_ablation() -> None:
+    module = torch.nn.LayerNorm((2, 3))
+    with torch.no_grad():
+        module.weight.fill_(1.0)
+        module.bias.fill_(1.0)
+    _, context = _context(module)
+    result = ablate_units(context, AblateUnitsArgs(module_path="", units=[0, 5]))
+    assert result["units"] == [0, 5]
+    assert module.weight[0, 0] == 0
+    assert module.weight[1, 2] == 0
+    assert module.bias[0, 0] == 0
+    assert module.bias[1, 2] == 0
+    assert module.weight[0, 1] == 1
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        torch.nn.GroupNorm(2, 4),
+        torch.nn.BatchNorm1d(4),
+        torch.nn.BatchNorm2d(4),
+        torch.nn.BatchNorm3d(4),
+    ],
+)
+def test_norm_variants_are_supported(module: torch.nn.Module) -> None:
+    with torch.no_grad():
+        module.weight.fill_(1.0)
+        module.bias.fill_(1.0)
+    _, context = _context(module)
+    ablate_units(context, AblateUnitsArgs(module_path="", units=[1]))
+    assert module.weight[1] == 0
+    assert module.bias[1] == 0
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        torch.nn.Conv1d(2, 3, 2),
+        torch.nn.Conv3d(2, 3, 2),
+    ],
+)
+def test_conv_variants_output_and_input_ablation(module: torch.nn.Module) -> None:
+    with torch.no_grad():
+        module.weight.fill_(1.0)
+        module.bias.fill_(1.0)
+    _, context = _context(module)
+    ablate_units(context, AblateUnitsArgs(module_path="", units=[1]))
+    assert torch.all(module.weight[1] == 0)
+    assert module.bias[1] == 0
+
+    with torch.no_grad():
+        module.weight.fill_(1.0)
+        module.bias.fill_(1.0)
+    _, context = _context(module)
+    ablate_units(context, AblateUnitsArgs(module_path="", units=[0], axis="input"))
+    assert torch.all(module.weight[:, 0] == 0)
+    assert torch.all(module.bias == 1.0)
+
+
+def test_grouped_conv_output_axis_is_supported() -> None:
+    module = torch.nn.Conv2d(4, 6, 3, groups=2)
+    with torch.no_grad():
+        module.weight.fill_(1.0)
+    _, context = _context(module)
+    ablate_units(context, AblateUnitsArgs(module_path="", units=[5]))
+    assert torch.all(module.weight[5] == 0)
+    assert torch.all(module.weight[4] == 1.0)
+
+
+def test_ablation_without_bias_and_scale_zero() -> None:
+    module = torch.nn.Linear(3, 4, bias=False)
+    with torch.no_grad():
+        module.weight.fill_(2.0)
+    _, context = _context(module)
+    result = ablate_units(
+        context,
+        AblateUnitsArgs(module_path="", units=[0], include_bias=False),
+    )
+    assert torch.all(module.weight[0] == 0)
+    assert len(result["edits"]) == 1
+
+    with torch.no_grad():
+        module.weight.fill_(2.0)
+    _, context = _context(module)
+    ablate_units(
+        context,
+        AblateUnitsArgs(
+            module_path="", units=[0], mode="scale", factor=0.0, include_bias=False
+        ),
+    )
+    assert torch.all(module.weight[0] == 0)
+
+
+def test_norm_without_affine_weight_is_rejected() -> None:
+    module = torch.nn.LayerNorm(3, elementwise_affine=False)
+    _, context = _context(module)
+    with pytest.raises(ToolError, match="no affine weight"):
+        ablate_units(context, AblateUnitsArgs(module_path="", units=[0]))
+
+
+def test_ablate_unknown_module_path_and_nested_module() -> None:
+    module = torch.nn.Sequential(torch.nn.Linear(2, 3), torch.nn.Linear(3, 1))
+    _, context = _context(module)
+    with pytest.raises(ToolError, match="unknown module path"):
+        ablate_units(context, AblateUnitsArgs(module_path="missing", units=[0]))
+
+    result = ablate_units(context, AblateUnitsArgs(module_path="1", units=[0]))
+    assert result["module"] == "1"
+    assert result["module_type"] == "Linear"
+    assert torch.all(module[1].weight[0] == 0)
+
+
+def test_unsupported_module_error_includes_children() -> None:
+    module = torch.nn.Sequential(torch.nn.ReLU())
+    _, context = _context(module)
+    with pytest.raises(ToolError, match="child modules: 0"):
+        ablate_units(context, AblateUnitsArgs(module_path="", units=[0]))
